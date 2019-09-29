@@ -46,6 +46,7 @@ Show process tree, which includes workers:
 
 Review proxying. Review mod_proxy configuration.
 Configure httpd as a forward proxy with authentication. Set proxy fqdn to forward.name.surname:  
+We should comment all rewrite rules.
 ![img 12](./apache_day2_12.png)
 ![img 13](./apache_day2_13.png)
 ![img 14](./apache_day2_14.png)
