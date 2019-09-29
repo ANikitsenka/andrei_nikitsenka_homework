@@ -5,7 +5,7 @@
 
 ### MPM worker module
 Configure hybrid multi-process multi-threaded httpd server (i.e., worker):  
-![img 1](./apache_day2/apache_day2_1.png)
+![img 1](./apache_day2_1.png)
 
 Set server fqdn to worker.name.surname:  
 ![img 2](./apache_day2/apache_day2_2.png)
