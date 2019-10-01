@@ -33,29 +33,35 @@ surname-tomcat3:
 1.Using mod_jk configure Tomcat Cluster with session persistence (replication):
 a. Configure 4 separate Virtual hosts for nikitsenka-tomcat1.lab, nikitsenka-tomcat2.lab, nikitsenka-tomcat3.lab
 and Tomcat Cluster (Apache cluster) – nikitsenka-cluster.lab.
+
 ![img 15](./15.png)
+
 b. Configure mod_jk – worker.properties
+
 ![img 17](./17.png)
+
 c. Setup cluster and check that you can reach clusterjsp app via sfirewall-cmd --reload.
 d. Check session persistence by stopping active tomcat server.
+
 ![img 18](./18.png)
 #Sessions attributes without changes.
 ![img 19](./19.png)
 #Sticky_session set to 1, but session ID changes with any request.
-![img 20](./20.png)
 
 ## Task 3
 
 1. Configure Log4j2 logging for one of the tomcat servers.
 #Unpack archive to /opt/tomcat/lib
-![img 21](./21.png)
+![img 20](./20.png)
 #Create script setenv.sh
-![img 22](./22.png)
+![img 21](./21.png)
 #Create a file called log4j2.xml into /opt/tomcat/conf
-![img 23](./23.png)
+![img 22](./22.png)
 #Run startup.sh
-![img 24](./24.png)
+![img 23](./23.png)
 #log
+![img 24](./24.png)
+
 ![img 25](./25.png)
 
 Thanks for your attention. File 'script.sh' contain commands.
