@@ -1,117 +1,72 @@
 #!/bin/bash
+yum -y install yum-utils vim net-tools
 
-######################################## Task 1 ############################################
+zbx_srv_installation() {
 
-yum install -y epel-release tmux curl vim httpd gcc
-sleep 1
-yum install -y cronolog wget apr-devel apr-util apr-util-devel pcre pcre-devel
+    hash_zbx_srv_conf="02d43c62d252393c294ce2d792b7bf45  /etc/zabbix/zabbix_server.conf"
+    hash_zbx_conf="a7bf50a2b8d50fa25b555140d0272a84  /etc/httpd/conf.d/zabbix.conf"
+    hash_httpd_conf="7c064196e073dac3f205d7555db66637  /etc/httpd/conf/httpd.conf"
 
-setenforce 0
+ yum -y install mariadb mariadb-server
+ systemctl enable mariadb
+ systemctl start mariadb
+ mysql -uroot -e "create database zabbix character set utf8 collate utf8_bin;"
+ mysql -uroot -e "grant all privileges on zabbix.* to $mariadb_user@localhost identified by '$mariadb_passwd';"
 
-create_index_httpd () {
-cat << EOF > /var/www/html/index.html
-<h2>Hello from httpd</h2>
-<hr />
-<p>Created by Andrei Nikitsenka</p>
+ rpm -ivh https://repo.zabbix.com/zabbix/3.5/rhel/7/x86_64/zabbix-release-3.5-1.el7.noarch.rpm
+ yum-config-manager --enable rhel-7-server-optional-rpms
+ yum -y install zabbix-server-mysql zabbix-web-mysql zabbix-agent
+ zcat /usr/share/doc/zabbix-server-mysql*/create.sql.gz | mysql -u$mariadb_user -p$mariadb_passwd zabbix
+
+ # This is first configuration after installation,
+ # so I decided repair created configs, instead of changing
+ # But I used checking of hash => idempotency
+ 
+ zbx_srv_conf() {
+     cat >> /etc/zabbix/zabbix_server.conf << EOF
+     DBHost=localhost
+     DBPassword=$mariadb_passwd
+EOF
+ }
+ zbx_conf() {
+     sed -i 's-# php_value date.timezone Europe/Riga-php_value date.timezone Europe/Minsk-' /etc/httpd/conf.d/zabbix.conf
+ }
+ httpd_conf() {
+     sed -i '43i Alias "/" "/usr/share/zabbix/"' /etc/httpd/conf/httpd.conf
+ }
+
+ [[ $(md5sum /etc/zabbix/zabbix_server.conf) != hash_zbx_srv_conf ]] && zbx_srv_conf
+ [[ $(md5sum /etc/httpd/conf.d/zabbix.conf) != hash_zbx_conf ]] && zbx_conf
+ [[ $(md5sum /etc/httpd/conf/httpd.conf) != hash_httpd_conf ]] && httpd_conf
+
+ systemctl start zabbix-server
+ systemctl enable zabbix-server
+
+ systemctl start httpd
+ systemctl enable httpd
+
+ systemctl start zabbix-agent
+ systemctl enable zabbix-agent
+
+}
+
+zbx_agent_installation() {
+ 
+ rpm -ivh https://repo.zabbix.com/zabbix/3.5/rhel/7/x86_64/zabbix-release-3.5-1.el7.noarch.rpm
+ yum-config-manager --enable rhel-7-server-optional-rpms
+ yum -y install zabbix-agent
+
+ systemctl start zabbix-agent
+ systemctl enable zabbix-agent
+
+ cat > /etc/zabbix/zabbix_agentd.conf << EOF
+ PidFile=/var/run/zabbix/zabbix_agentd.pid
+ LogFile=/var/log/zabbix/zabbix_agentd.log
+ LogFileSize=0
+ Server=$srv_ip
+ Include=/etc/zabbix/zabbix_agentd.d/*.conf
 EOF
 }
-create_index_httpd
 
-config_fw_rules () {
-firewall-cmd --permanent --add-port=80/tcp
-firewall-cmd --permanent --add-port=443/tcp
-firewall-cmd --reload
-}
-config_fw_rules
-
-systemctl start httpd
-echo "Please wait..."
-sleep 3
-httpd -S
-systemctl stop httpd && echo "httpd stopped"
-
-wget http://ftp.byfly.by/pub/apache.org//httpd/httpd-2.4.41.tar.gz -O /tmp/httpd-2.4.41.tar.gz
-tar -xvf /tmp/httpd-2.4.41.tar.gz
-rm -f /tmp/httpd-2.4.41.tar.gz
-
-mkdir /apps
-apache_install () {
-home=$(pwd)
-cd $home/httpd-2.4.41
-./configure --prefix=/apps/httpd-2.4.41
-make $home/httpd-2.4.41
-make install
-cd $home
-}
-
-creation_index_apache () {
-cat << EOF > /apps/httpd-2.4.41/htdocs/index.html
-<h2>Hello from Apache2</h2>
-<hr />
-<p>Created by Andrei Nikitsenka</p>
-EOF
-}
-creation_index_apache
-
-
-####################################### Task 2 ############################################
-
-create_vhosts_conf () {
-cat << EOF > /etc/httpd/conf.d/httpd-vhosts.conf
-<VirtualHost *>
-    ServerName www.andrei.nikitsenka
-    ServerAlias andrei.nikitsenka
-</VirtualHost>
-EOF
-}
-create_vhosts_conf
-
-add_vhosts_to_httpd_conf () {
-echo "Include /etc/httpd/conf.d/httpd-vhosts.conf" >> /etc/httpd/conf/httpd.conf
-} 
-add_vhosts_to_httpd_conf
-
-create_testpage () {
-cat << EOF > /var/www/html/ping.html
-<h2> This is ping.html </h2>
-<hr />
-<p>Created by Andrei Nikitsenka</p>
-EOF
-}
-create_testpage
-
-add_rwmod_rules () {
-sed -i 's|</VirtualHost>||g' /etc/httpd/conf.d/httpd-vhosts.conf
-echo "RewriteEngine On" >> /etc/httpd/conf.d/httpd-vhosts.conf
-echo 'RewriteRule "/$" "/index.html" [R,L,NC]' >> /etc/httpd/conf.d/httpd-vhosts.conf
-echo 'RewriteRule "^/index\.html$" "/ping.html" [R,L,NC]' >> /etc/httpd/conf.d/httpd-vhosts.conf
-echo 'RewriteRule !^/ping - [F,NC]' >> /etc/httpd/conf.d/httpd-vhosts.conf
-echo '</VirtualHost>' >> /etc/httpd/conf.d/httpd-vhosts.conf
-}
-add_rwmod_rules
-
-
-######################################## Task 3 ###########################################
-
-add_cronolog () {
-mkdir -p /logs/httpd/andrei_nikitsenka
-sed -i 's|</VirtualHost>||g' /etc/httpd/conf.d/httpd-vhosts.conf
-echo '    ErrorLog "| /usr/sbin/cronolog /logs/httpd/andrei_nikitsenka/Version-error-%d%b%Y-log"' >> /etc/httpd/conf.d/httpd-vhosts.conf
-echo '    CustomLog "| /usr/sbin/cronolog /logs/httpd/andrei_nikitsenka/Version-access-%d%b%Y-log" common' >> /etc/httpd/conf.d/httpd-vhosts.conf
-echo '</VirtualHost>' >> /etc/httpd/conf.d/httpd-vhosts.conf
-}
-add_cronolog
-
-
-######################################## Task 4 ###########################################
-
-store_logs_to_syslog () {
-sed -i 's|</VirtualHost>||g' /etc/httpd/conf.d/httpd-vhosts.conf
-sed -i 's|.*ErrorLog.*||g' /etc/httpd/conf.d/httpd-vhosts.conf
-sed -i 's|.*CustomLog.*||g' /etc/httpd/conf.d/httpd-vhosts.conf
-echo '    LogFormat "%h %l %u %t \"%r\" %>s %b \"%{Referer}i\"\%{User-agent}i\"" extended_ncsa' >> /etc/httpd/conf.d/httpd-vhosts.conf
-echo '    ErrorLog  "| /usr/bin/logger -thttpd -plocal6.err"' >> /etc/httpd/conf.d/httpd-vhosts.conf
-echo '    CustomLog "| /usr/bin/logger -thttpd -plocal6.notice" extended_ncsa' >> /etc/httpd/conf.d/httpd-vhosts.conf
-echo '</VirtualHost>' >> /etc/httpd/conf.d/httpd-vhosts.conf
-}
-store_logs_to_syslog
+#Installation depends on hostname
+[[ $(hostname) == "$srv_name" ]] && zbx_srv_installation || zbx_agent_installation
