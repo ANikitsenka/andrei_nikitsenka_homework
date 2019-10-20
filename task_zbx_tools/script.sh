@@ -1,4 +1,5 @@
 #!/bin/bash
+
 yum -y install yum-utils vim net-tools
 
 zbx_srv_installation() {
@@ -13,9 +14,9 @@ zbx_srv_installation() {
  mysql -uroot -e "create database zabbix character set utf8 collate utf8_bin;"
  mysql -uroot -e "grant all privileges on zabbix.* to $mariadb_user@localhost identified by '$mariadb_passwd';"
 
- rpm -ivh https://repo.zabbix.com/zabbix/3.5/rhel/7/x86_64/zabbix-release-3.5-1.el7.noarch.rpm
- yum-config-manager --enable rhel-7-server-optional-rpms
- yum -y install zabbix-server-mysql zabbix-web-mysql zabbix-agent
+ rpm -ivh https://repo.zabbix.com/zabbix/4.4/rhel/7/x86_64/zabbix-release-4.4-1.el7.noarch.rpm
+ #yum-config-manager --enable rhel-7-server-optional-rpms
+ yum -y install zabbix-server-mysql zabbix-web-mysql zabbix-apache-conf zabbix-agent zabbix-get
  zcat /usr/share/doc/zabbix-server-mysql*/create.sql.gz | mysql -u$mariadb_user -p$mariadb_passwd zabbix
 
  # This is first configuration after installation,
@@ -52,9 +53,9 @@ EOF
 
 zbx_agent_installation() {
  
- rpm -ivh https://repo.zabbix.com/zabbix/3.5/rhel/7/x86_64/zabbix-release-3.5-1.el7.noarch.rpm
- yum-config-manager --enable rhel-7-server-optional-rpms
- yum -y install zabbix-agent
+ rpm -ivh https://repo.zabbix.com/zabbix/4.4/rhel/7/x86_64/zabbix-release-4.4-1.el7.noarch.rpm
+ #yum-config-manager --enable rhel-7-server-optional-rpms
+ yum -y install zabbix-agent zabbix-sender
 
  systemctl start zabbix-agent
  systemctl enable zabbix-agent
@@ -64,6 +65,9 @@ zbx_agent_installation() {
  LogFile=/var/log/zabbix/zabbix_agentd.log
  LogFileSize=0
  Server=$srv_ip
+ ServerActive=$srv_ip
+ Hostname=Zabbix server
+ HostnameItem=system.hostname
  Include=/etc/zabbix/zabbix_agentd.d/*.conf
 EOF
 }
