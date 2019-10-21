@@ -3,8 +3,8 @@
 
 BOX_IMAGE = "sbeliakou/centos"
 NODE_COUNT = 1
-SRV_NAME = "zbx-srv"
-NODE_NAME = "zbx-ag"
+SRV_NAME = "zbx-srv-day3"
+NODE_NAME = "zbx-ag-day3-"
 #network variables
 SUBNET = "192.168.56"
 NET_START = 106
