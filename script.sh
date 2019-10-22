@@ -1,117 +1,151 @@
 #!/bin/bash
 
-######################################## Task 1 ############################################
+yum -y install yum-utils vim net-tools
 
-yum install -y epel-release tmux curl vim httpd gcc
-sleep 1
-yum install -y cronolog wget apr-devel apr-util apr-util-devel pcre pcre-devel
+elk_srv_installation() {
+    
+    elasticsearch_install() {
+        wget https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-7.4.0-x86_64.rpm
+        rpm -i elasticsearch-7.4.0-x86_64.rpm
+    }
+    kibana_install() {
+        echo "[kibana-7.x]" >> /etc/yum.repos.d/kibana.repo
+        echo "name=Kibana repository for 7.x packages" >> /etc/yum.repos.d/kibana.repo
+        echo "baseurl=https://artifacts.elastic.co/packages/7.x/yum" >> /etc/yum.repos.d/kibana.repo
+        echo "gpgcheck=1" >> /etc/yum.repos.d/kibana.repo
+        echo "gpgkey=https://artifacts.elastic.co/GPG-KEY-elasticsearch" >> /etc/yum.repos.d/kibana.repo
+        echo "enabled=1" >> /etc/yum.repos.d/kibana.repo
+        echo "autorefresh=1" >> /etc/yum.repos.d/kibana.repo
+        echo "type=rpm-md" >> /etc/yum.repos.d/kibana.repo
+        yum -y install kibana
+    }
+    kibana_config() {
+        echo "server.port: 5601" >> /etc/kibana/kibana.yml
+        echo "server.host: "$srv_ip"" >> /etc/kibana/kibana.yml
+        echo "server.name: "$(hostname)"" >> /etc/kibana/kibana.yml
+        echo 'elasticsearch.hosts: ["http://'$srv_ip:'9200"]' >> /etc/kibana/kibana.yml
+        echo 'elasticsearch.username: "kibana"' >> /etc/kibana/kibana.yml
+        echo 'elasticsearch.password: "pass"' >> /etc/kibana/kibana.yml
+    }
+    elasticsearch_config() {
+        echo "network.host: $srv_ip" >> /etc/elasticsearch/elasticsearch.yml 
+        echo "http.port: 9200" >> /etc/elasticsearch/elasticsearch.yml 
+        echo 'discovery.seed_hosts: ["host1", "host2"]' >> /etc/elasticsearch/elasticsearch.yml 
+        echo 'cluster.initial_master_nodes: ["node-1", "node-2"]' >> /etc/elasticsearch/elasticsearch.yml 
+    }
 
-setenforce 0
+    elasticsearch_install
+    elasticsearch_config
+    kibana_install
+    kibana_config
 
-create_index_httpd () {
-cat << EOF > /var/www/html/index.html
-<h2>Hello from httpd</h2>
-<hr />
-<p>Created by Andrei Nikitsenka</p>
+    systemctl start elasticsearch
+    systemctl enable elasticsearch
+    systemctl start kibana
+    systemctl enable kibana
+}
+
+ tomcat_installation() {
+     
+    yum -y install java-1.8.0-openjdk
+    groupadd tomcat
+    mkdir /opt/tomcat
+    useradd -s /bin/nologin -g tomcat -d /opt/tomcat tomcat
+
+    wget http://ftp.byfly.by/pub/apache.org/tomcat/tomcat-8/v8.5.47/bin/apache-tomcat-8.5.47.tar.gz
+    tar -zxvf apache-tomcat-8.5.47.tar.gz -C /opt/tomcat --strip-components=1
+
+    chmod g+rwx /opt/tomcat/*
+    chown -R tomcat:tomcat /opt/tomcat
+    sleep 3
+    cp /vagrant/TestApp.war /opt/tomcat/webapps/
+
+cat > /etc/systemd/system/tomcat.service << EOF 
+[Unit]
+Description=Apache Tomcat Web Application Container
+After=syslog.target network.target
+[Service]
+Type=forking
+Environment=JAVA_HOME=/usr/lib/jvm/jre/
+Environment=CATALINA_PID=/opt/tomcat/temp/tomcat.pid
+Environment=CATALINA_HOME=/opt/tomcat
+Environment=CATALINA_BASE=/opt/tomcat
+Environment='CATALINA_OPTS=-Xss1024k -Xms256M -Xmx512M -server -XX:+UseParallelGC -verbose:gc -XX:+HeapDumpOnOutOfMemoryError -Xloggc:/opt/tomcat/logs/gclogs.txt'
+Environment='JAVA_OPTS=-Djava.awt.headless=true -Djava.security.egd=file:/dev/./urandom'
+ExecStart=/opt/tomcat/bin/startup.sh
 EOF
-}
-create_index_httpd
 
-config_fw_rules () {
-firewall-cmd --permanent --add-port=80/tcp
-firewall-cmd --permanent --add-port=443/tcp
-firewall-cmd --reload
-}
-config_fw_rules
-
-systemctl start httpd
-echo "Please wait..."
-sleep 3
-httpd -S
-systemctl stop httpd && echo "httpd stopped"
-
-wget http://ftp.byfly.by/pub/apache.org//httpd/httpd-2.4.41.tar.gz -O /tmp/httpd-2.4.41.tar.gz
-tar -xvf /tmp/httpd-2.4.41.tar.gz
-rm -f /tmp/httpd-2.4.41.tar.gz
-
-mkdir /apps
-apache_install () {
-home=$(pwd)
-cd $home/httpd-2.4.41
-./configure --prefix=/apps/httpd-2.4.41
-make $home/httpd-2.4.41
-make install
-cd $home
-}
-
-creation_index_apache () {
-cat << EOF > /apps/httpd-2.4.41/htdocs/index.html
-<h2>Hello from Apache2</h2>
-<hr />
-<p>Created by Andrei Nikitsenka</p>
+cat >> /etc/systemd/system/tomcat.service << \EOF
+ExecStop=/bin/kill -15 $MAINPID
+User=tomcat
+Group=tomcat
+[Install]
+WantedBy=multi-user.target
 EOF
-}
-creation_index_apache
 
-
-####################################### Task 2 ############################################
-
-create_vhosts_conf () {
-cat << EOF > /etc/httpd/conf.d/httpd-vhosts.conf
-<VirtualHost *>
-    ServerName www.andrei.nikitsenka
-    ServerAlias andrei.nikitsenka
-</VirtualHost>
+cat > /opt/tomcat/conf/Catalina/localhost/manager.xml << EOF
+<Context privileged="true" antiResourceLocking="false" 
+         docBase="${catalina.home}/webapps/manager">
+    <Valve className="org.apache.catalina.valves.RemoteAddrValve" allow="^.*$" />
+</Context>
 EOF
+
+
+echo '<?xml version="1.0" encoding="UTF-8"?>' > /opt/tomcat/conf/tomcat-users.xml
+echo '<tomcat-users xmlns="http://tomcat.apache.org/xml"' >> /opt/tomcat/conf/tomcat-users.xml
+echo '              xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"' >> /opt/tomcat/conf/tomcat-users.xml
+echo '              xsi:schemaLocation="http://tomcat.apache.org/xml tomcat-users.xsd"' >> /opt/tomcat/conf/tomcat-users.xml
+echo '              version="1.0">' >> /opt/tomcat/conf/tomcat-users.xml
+echo '<role rolename="admin-gui"/>' >> /opt/tomcat/conf/tomcat-users.xml
+echo '<role rolename="manager-gui"/>' >> /opt/tomcat/conf/tomcat-users.xml
+echo '<user username="tomcat" password="tomcat" roles="admin-gui,manager-gui"/>' >> /opt/tomcat/conf/tomcat-users.xml
+echo '</tomcat-users>' >> /opt/tomcat/conf/tomcat-users.xml
+ 
+    systemctl start tomcat
+    systemctl enable tomcat
+    systemctl status tomcat
+    sleep 5
+    }
+
+    logstash_installation() {
+        
+        rpm --import https://artifacts.elastic.co/GPG-KEY-elasticsearch
+        yum -y install logstash
+        
+        echo "[logstash-7.x]" >> /etc/yum.repos.d/logstash.repo
+        echo "name=Elastic repository for 7.x packages" >> /etc/yum.repos.d/logstash.repo
+        echo "baseurl=https://artifacts.elastic.co/packages/7.x/yum" >> /etc/yum.repos.d/logstash.repo
+        echo "gpgcheck=1" >> /etc/yum.repos.d/logstash.repo
+        echo "gpgkey=https://artifacts.elastic.co/GPG-KEY-elasticsearch" >> /etc/yum.repos.d/logstash.repo
+        echo "enabled=1" >> /etc/yum.repos.d/logstash.repo
+        echo "autorefresh=1" >> /etc/yum.repos.d/logstash.repo
+        echo "type=rpm-md" >> /etc/yum.repos.d/logstash.repo
+        echo "logstash installation"
+
+        echo "input {" > /etc/logstash/conf.d/logstash.conf
+        echo "  file {" >> /etc/logstash/conf.d/logstash.conf
+        echo '    path => "/opt/tomcat/logs/*.log"' >> /etc/logstash/conf.d/logstash.conf
+        echo '    start_position => "beginning"' >> /etc/logstash/conf.d/logstash.conf
+        echo "  }" >> /etc/logstash/conf.d/logstash.conf
+        echo "}" >> /etc/logstash/conf.d/logstash.conf
+        echo "" >> /etc/logstash/conf.d/logstash.conf
+        echo "output {" >> /etc/logstash/conf.d/logstash.conf
+        echo "  elasticsearch {" >> /etc/logstash/conf.d/logstash.conf
+        echo '    hosts => ["'$srv_ip':9200"]' >> /etc/logstash/conf.d/logstash.conf
+        echo '    index    => "tomcat-%{+YYYY.MM.dd}"' >> /etc/logstash/conf.d/logstash.conf
+        echo "  }" >> /etc/logstash/conf.d/logstash.conf
+        echo "  stdout { codec => rubydebug }" >> /etc/logstash/conf.d/logstash.conf
+        echo "}" >> /etc/logstash/conf.d/logstash.conf
+
+        chmod 744 -R /opt
+    }
+
+elk_node_installation() {
+    tomcat_installation
+    logstash_installation
+    systemctl start logstash
+    systemctl enable logstash
 }
-create_vhosts_conf
 
-add_vhosts_to_httpd_conf () {
-echo "Include /etc/httpd/conf.d/httpd-vhosts.conf" >> /etc/httpd/conf/httpd.conf
-} 
-add_vhosts_to_httpd_conf
-
-create_testpage () {
-cat << EOF > /var/www/html/ping.html
-<h2> This is ping.html </h2>
-<hr />
-<p>Created by Andrei Nikitsenka</p>
-EOF
-}
-create_testpage
-
-add_rwmod_rules () {
-sed -i 's|</VirtualHost>||g' /etc/httpd/conf.d/httpd-vhosts.conf
-echo "RewriteEngine On" >> /etc/httpd/conf.d/httpd-vhosts.conf
-echo 'RewriteRule "/$" "/index.html" [R,L,NC]' >> /etc/httpd/conf.d/httpd-vhosts.conf
-echo 'RewriteRule "^/index\.html$" "/ping.html" [R,L,NC]' >> /etc/httpd/conf.d/httpd-vhosts.conf
-echo 'RewriteRule !^/ping - [F,NC]' >> /etc/httpd/conf.d/httpd-vhosts.conf
-echo '</VirtualHost>' >> /etc/httpd/conf.d/httpd-vhosts.conf
-}
-add_rwmod_rules
-
-
-######################################## Task 3 ###########################################
-
-add_cronolog () {
-mkdir -p /logs/httpd/andrei_nikitsenka
-sed -i 's|</VirtualHost>||g' /etc/httpd/conf.d/httpd-vhosts.conf
-echo '    ErrorLog "| /usr/sbin/cronolog /logs/httpd/andrei_nikitsenka/Version-error-%d%b%Y-log"' >> /etc/httpd/conf.d/httpd-vhosts.conf
-echo '    CustomLog "| /usr/sbin/cronolog /logs/httpd/andrei_nikitsenka/Version-access-%d%b%Y-log" common' >> /etc/httpd/conf.d/httpd-vhosts.conf
-echo '</VirtualHost>' >> /etc/httpd/conf.d/httpd-vhosts.conf
-}
-add_cronolog
-
-
-######################################## Task 4 ###########################################
-
-store_logs_to_syslog () {
-sed -i 's|</VirtualHost>||g' /etc/httpd/conf.d/httpd-vhosts.conf
-sed -i 's|.*ErrorLog.*||g' /etc/httpd/conf.d/httpd-vhosts.conf
-sed -i 's|.*CustomLog.*||g' /etc/httpd/conf.d/httpd-vhosts.conf
-echo '    LogFormat "%h %l %u %t \"%r\" %>s %b \"%{Referer}i\"\%{User-agent}i\"" extended_ncsa' >> /etc/httpd/conf.d/httpd-vhosts.conf
-echo '    ErrorLog  "| /usr/bin/logger -thttpd -plocal6.err"' >> /etc/httpd/conf.d/httpd-vhosts.conf
-echo '    CustomLog "| /usr/bin/logger -thttpd -plocal6.notice" extended_ncsa' >> /etc/httpd/conf.d/httpd-vhosts.conf
-echo '</VirtualHost>' >> /etc/httpd/conf.d/httpd-vhosts.conf
-}
-store_logs_to_syslog
+#Installation depends on hostname
+[[ $(hostname) == "$srv_name" ]] && elk_srv_installation || elk_node_installation
